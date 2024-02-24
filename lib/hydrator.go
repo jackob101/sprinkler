@@ -12,22 +12,38 @@ type Template struct {
 	template string
 }
 
-func Hydrate() {
-	// templatesDirectory := "templates"
-	variablesFile := "input.variables"
-	variables := readVariables(variablesFile)
+func Hydrate(pathToVariables string, pathToTemplates string) {
+	validateVariablesPath(pathToVariables)
+	validateTemplatesPath(pathToTemplates)
 
-	println("Starting hydration")
-
-	fmt.Println(variables)
-
-	templates := readTemplates("templates")
-
-	fmt.Println(templates)
-
+	variables := readVariables(pathToVariables)
+	templates := readTemplates(pathToTemplates)
 	filledTemplates := fillTemplates(variables, &templates)
 
-	fmt.Println(filledTemplates)
+	saveFilledTemplates(&filledTemplates)
+}
+
+func saveFilledTemplates(templates *[]Template) {
+	pathToSavedTemplates := "filled_templates"
+
+	info, err := os.Stat(pathToSavedTemplates)
+
+	if os.IsNotExist(err) {
+		os.Mkdir(pathToSavedTemplates, 0744)
+	} else if !info.IsDir() {
+		println("filled_templates is a file")
+		os.Exit(1)
+	}
+
+	for _, templateEntry := range *templates {
+		templateSuffixIndex := strings.Index(templateEntry.name, ".template")
+		fileName := filepath.Join(pathToSavedTemplates, templateEntry.name[0:templateSuffixIndex])
+
+		err := os.WriteFile(fileName, []byte(templateEntry.template), 0744)
+		if err != nil {
+			fmt.Printf("%v", err)
+		}
+	}
 }
 
 func readVariables(variableFileName string) map[string]string {
@@ -107,4 +123,45 @@ func fillTemplates(variables map[string]string, templates *[]Template) []Templat
 	}
 
 	return filledTemplates
+}
+
+func validateVariablesPath(pathToVariables string) {
+	path, err := filepath.Abs(pathToVariables)
+	if err != nil {
+		fmt.Printf("Path to variables failed to convert to absolute. %v \n", err)
+		os.Exit(1)
+	}
+
+	info, err := os.Stat(path)
+
+	if os.IsNotExist(err) {
+		println("Path to variables points to void")
+		os.Exit(1)
+	} else if err != nil {
+		fmt.Println("Uknown error occurred: ", err)
+		os.Exit(1)
+	}
+
+	if info.IsDir() {
+		fmt.Println("Path to variables must point to file not to directory")
+		os.Exit(1)
+	}
+}
+
+func validateTemplatesPath(pathToTemplates string) {
+	path, err := filepath.Abs(pathToTemplates)
+	if err != nil {
+		fmt.Printf("Path to templates failed to convert to absolute. %v \n", err)
+		os.Exit(1)
+	}
+
+	_, err = os.Stat(path)
+
+	if os.IsNotExist(err) {
+		println("Path to templates points to void")
+		os.Exit(1)
+	} else if err != nil {
+		fmt.Println("Uknown error occurred: ", err)
+		os.Exit(1)
+	}
 }

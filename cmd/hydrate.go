@@ -11,11 +11,15 @@ import (
 
 // hydrateCmd represents the hydrate command
 var hydrateCmd = &cobra.Command{
-	Use:   "hydrate",
+	Use:   "hydrate [path to file with variables] [path to directory with templates]",
 	Short: "Fires off hydration",
 	Long:  `TODO add longer description`,
+	Args:  cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		hydrator.Hydrate()
+		pathToVariables := args[0]
+		pathToTemplates := args[1]
+
+		hydrator.Hydrate(pathToVariables, pathToTemplates)
 	},
 }
 
