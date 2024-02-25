@@ -11,11 +11,19 @@ import (
 const (
 	settingFileName        = "out.settings"
 	defaultOutputDirectory = "templates_filled"
+	variableDeclaration    = "@hydrate"
 )
 
+type templateVariable struct {
+	id    int
+	name  string
+	index int
+}
+
 type Template struct {
-	name     string
-	template string
+	name      string
+	template  string
+	variables []templateVariable
 }
 
 func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) {
@@ -42,19 +50,21 @@ func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) 
 		os.Exit(1)
 	}
 
-	outputSettings, err := readOutputSettings(pathToTemplates, homePath)
-	if err != nil {
-		println(err)
-		os.Exit(1)
-	} else {
-		println("Output settings registered")
-	}
+	// outputSettings, err := readOutputSettings(pathToTemplates, homePath)
+	// if err != nil {
+	// 	println(err)
+	// 	os.Exit(1)
+	// } else {
+	// 	println("Output settings registered")
+	// }
 
 	variables := readVariables(pathToVariables)
 	templates := readTemplates(pathToTemplates)
 	filledTemplates := fillTemplates(variables, &templates)
 
-	saveFilledTemplates(&filledTemplates, outputSettings)
+	fmt.Println(filledTemplates)
+
+	// saveFilledTemplates(&filledTemplates, outputSettings)
 }
 
 func readOutputSettings(pathToTemplates string, homePath string) (map[string]string, error) {
@@ -189,9 +199,37 @@ func readTemplates(templatesDirectory string) []Template {
 		filePath := filepath.Join(templatesDirectory, entry.Name())
 		bytes, _ := os.ReadFile(filePath)
 
+		templateContent := string(bytes)
+
+		variableId := 1
+
+		templateVariables := []templateVariable{}
+		nextVariableIndex := strings.Index(templateContent, variableDeclaration)
+
+		for nextVariableIndex > 0 {
+			variableNameStartIndex := nextVariableIndex + 1 + len(variableDeclaration)
+			variableNameEndIndex := strings.Index(templateContent[variableNameStartIndex:], ")")
+			variableName := templateContent[variableNameStartIndex : variableNameStartIndex+variableNameEndIndex]
+			templateVariables = append(templateVariables, templateVariable{
+				id:    variableId,
+				name:  variableName,
+				index: nextVariableIndex,
+			})
+			variableId++
+
+			variableDeclarationLength := len(variableDeclaration) + 2 + len(variableName)
+			newIndex := strings.Index(templateContent[nextVariableIndex+variableDeclarationLength:], variableDeclaration)
+			if newIndex < 0 {
+				nextVariableIndex = -1
+			} else {
+				nextVariableIndex += variableDeclarationLength + newIndex
+			}
+		}
+
 		template := Template{
-			name:     entry.Name(),
-			template: string(bytes),
+			name:      entry.Name(),
+			template:  string(bytes),
+			variables: templateVariables,
 		}
 
 		templates = append(templates, template)
@@ -206,8 +244,19 @@ func fillTemplates(variables map[string]string, templates *[]Template) []Templat
 
 		templateContent := templateEntry.template
 
-		for key, variable := range variables {
-			templateContent = strings.ReplaceAll(templateContent, "$"+key+"$", variable)
+		for i := len(templateEntry.variables) - 1; i >= 0; i-- {
+			entryVariable := templateEntry.variables[i]
+
+			variableValue := variables[entryVariable.name]
+
+			if variableValue == "" {
+				fmt.Printf("Template: '%v' contains variable: '%v' that is missing from input\n", templateEntry.name, entryVariable.name)
+				os.Exit(1)
+			}
+
+			variableDeclarationLength := len(variableDeclaration) + 2 + len(entryVariable.name)
+			templateContent = templateContent[:entryVariable.index] + variableValue + templateContent[entryVariable.index+variableDeclarationLength:]
+
 		}
 
 		filledTemplates = append(filledTemplates, Template{
