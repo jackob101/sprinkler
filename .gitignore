@@ -3,4 +3,5 @@ input.variables
 generated/**
 filled_templates/**
 template_filled/**
+templates_filled/**
 sprinkler
