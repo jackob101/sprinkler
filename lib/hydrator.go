@@ -1,25 +1,22 @@
 package hydrator
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-var settingsFileName = "sprinkler.settings"
+const (
+	settingFileName        = "sprinkler.settings"
+	defaultOutputDirectory = "templates_filled"
+)
 
 type Template struct {
 	name     string
 	template string
 }
-
-// Path validations
-// Either relative or absolute
-// No ENV variables so no $HOME$
-// pathToVariables must point to file
-// pathToTemplates must point to file or directory
-// outputPath must point to directory
 
 func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) {
 	homePath := os.Getenv("HOME")
@@ -45,77 +42,80 @@ func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) 
 		os.Exit(1)
 	}
 
-	settings := readSettingsFile(pathToTemplates)
-
-	fmt.Printf("%v", settings)
+	outputSettings, err := readOutputSettings(pathToTemplates)
+	if err != nil {
+		println(err)
+		os.Exit(1)
+	} else {
+		println("Output settings registered")
+	}
 
 	variables := readVariables(pathToVariables)
 	templates := readTemplates(pathToTemplates)
 	filledTemplates := fillTemplates(variables, &templates)
 
-	saveFilledTemplates(&filledTemplates, settings)
+	saveFilledTemplates(&filledTemplates, outputSettings)
 }
 
-func readSettingsFile(pathToTemplates string) map[string]string {
+func readOutputSettings(pathToTemplates string) (map[string]string, error) {
 	_, err := os.Stat(pathToTemplates)
-
-	if os.IsNotExist(err) {
-		return map[string]string{}
-	} else if err != nil {
-		println("Failed to read template directory", err)
-		os.Exit(1)
-	}
-	pathToSettings := filepath.Join(pathToTemplates, settingsFileName)
-	_, err = os.Stat(pathToSettings)
-
-	if os.IsNotExist(err) {
-		return map[string]string{}
-	} else if err != nil {
-		println("Failed to read template directory", err)
-		os.Exit(1)
-	}
-
-	settingsFile, err := os.ReadFile(pathToSettings)
-	if err != nil {
-		println("Failed to read settings file")
-	}
-
-	settingsFileContent := string(settingsFile)
-
-	splitContent := strings.Split(settingsFileContent, "\n")
 
 	settings := map[string]string{}
 
-	for _, splitContent := range splitContent {
-		optionData := strings.Split(splitContent, "=")
+	if os.IsNotExist(err) {
+		return settings, nil
+	} else if err != nil {
+		return settings, errors.New(fmt.Sprintf("Failed to read template directory %v", err))
+	}
+	pathToSettings := filepath.Join(pathToTemplates, settingFileName)
+	_, err = os.Stat(pathToSettings)
+
+	if os.IsNotExist(err) {
+		return settings, nil
+	} else if err != nil {
+		return settings, errors.New(fmt.Sprintf("Failed to read settings file %v", err))
+	}
+
+	settingsFileBytes, err := os.ReadFile(pathToSettings)
+	if err != nil {
+		return settings, errors.New(fmt.Sprintf("Failed to read settings file %v", err))
+	}
+
+	settingsFileContent := string(settingsFileBytes)
+
+	settingsFileLines := strings.Split(settingsFileContent, "\n")
+
+	for _, line := range settingsFileLines {
+		optionData := strings.Split(line, "=")
 
 		if len(optionData) != 2 {
 			continue
 		}
 
-		settingName := strings.TrimSpace(optionData[0])
-		settingValue := strings.TrimSpace(optionData[1])
+		name := strings.TrimSpace(optionData[0])
+		value := strings.TrimSpace(optionData[1])
 
-		settings[settingName] = settingValue
+		settings[name] = value
+
 	}
 
-	return settings
+	return settings, nil
 }
 
 func saveFilledTemplates(templates *[]Template, settings map[string]string) {
 	for _, templateEntry := range *templates {
 
 		outputPath := settings[templateEntry.name]
-		// Create default path
+		// If user did not specify path for current file then generate default output path
 		if outputPath == "" {
 			templateSuffixIndex := strings.Index(templateEntry.name, ".template")
-			outputPath = filepath.Join("template_filled", templateEntry.name[0:templateSuffixIndex])
+			outputPath = filepath.Join(defaultOutputDirectory, templateEntry.name[0:templateSuffixIndex])
 		}
-		fileDir := filepath.Dir(outputPath)
-		info, err := os.Stat(fileDir)
+		parentDirectory := filepath.Dir(outputPath)
+		info, err := os.Stat(parentDirectory)
 
 		if os.IsNotExist(err) {
-			os.Mkdir(fileDir, 0744)
+			os.Mkdir(parentDirectory, 0744)
 		} else if !info.IsDir() {
 			println("filled_templates is a file")
 			os.Exit(1)
