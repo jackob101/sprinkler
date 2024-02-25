@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	settingFileName        = "sprinkler.settings"
+	settingFileName        = "out.settings"
 	defaultOutputDirectory = "templates_filled"
 )
 
@@ -42,7 +42,7 @@ func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) 
 		os.Exit(1)
 	}
 
-	outputSettings, err := readOutputSettings(pathToTemplates)
+	outputSettings, err := readOutputSettings(pathToTemplates, homePath)
 	if err != nil {
 		println(err)
 		os.Exit(1)
@@ -57,7 +57,7 @@ func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) 
 	saveFilledTemplates(&filledTemplates, outputSettings)
 }
 
-func readOutputSettings(pathToTemplates string) (map[string]string, error) {
+func readOutputSettings(pathToTemplates string, homePath string) (map[string]string, error) {
 	_, err := os.Stat(pathToTemplates)
 
 	settings := map[string]string{}
@@ -94,9 +94,24 @@ func readOutputSettings(pathToTemplates string) (map[string]string, error) {
 
 		name := strings.TrimSpace(optionData[0])
 		value := strings.TrimSpace(optionData[1])
+		value = strings.ReplaceAll(value, "$HOME", homePath)
+
+		parentDirectory := filepath.Dir(value)
+
+		info, err := os.Stat(parentDirectory)
+
+		if os.IsNotExist(err) {
+			fmt.Printf("Parent directory for path %v doesn't exists\n", value)
+			continue
+		} else if err != nil {
+			fmt.Printf("Unexpected error %v\n", value)
+			continue
+		} else if !info.IsDir() {
+			fmt.Printf("Parent is not a directory for %v\n", value)
+			continue
+		}
 
 		settings[name] = value
-
 	}
 
 	return settings, nil
@@ -192,9 +207,7 @@ func fillTemplates(variables map[string]string, templates *[]Template) []Templat
 		templateContent := templateEntry.template
 
 		for key, variable := range variables {
-			println("replacing ", key, variable)
 			templateContent = strings.ReplaceAll(templateContent, "$"+key+"$", variable)
-			println(templateContent)
 		}
 
 		filledTemplates = append(filledTemplates, Template{
