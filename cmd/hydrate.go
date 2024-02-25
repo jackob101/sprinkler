@@ -4,7 +4,7 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	hydrator "jackob101/sprinkler/lib"
+	"jackob101/sprinkler/lib"
 
 	"github.com/spf13/cobra"
 )
@@ -29,7 +29,7 @@ var hydrateCmd = &cobra.Command{
 		pathToVariables := args[0]
 		pathToTemplates := args[1]
 
-		hydrator.Hydrate(pathToVariables, pathToTemplates, outputPath)
+		lib.Hydrate(pathToVariables, pathToTemplates, outputPath)
 	},
 }
 
