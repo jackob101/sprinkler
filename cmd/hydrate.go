@@ -16,15 +16,27 @@ var hydrateCmd = &cobra.Command{
 	Long:  `TODO add longer description`,
 	Args:  cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
+		outputPath, err := cmd.Flags().GetString("output")
+		if err != nil {
+			panic("Failed to get output flag")
+		}
+
+		println(outputPath)
+		if outputPath == "" {
+			outputPath = "filled_templates"
+		}
+
 		pathToVariables := args[0]
 		pathToTemplates := args[1]
 
-		hydrator.Hydrate(pathToVariables, pathToTemplates)
+		hydrator.Hydrate(pathToVariables, pathToTemplates, outputPath)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(hydrateCmd)
+
+	hydrateCmd.Flags().String("output", "", "Output directory")
 
 	// Here you will define your flags and configuration settings.
 

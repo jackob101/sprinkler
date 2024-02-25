@@ -7,39 +7,121 @@ import (
 	"strings"
 )
 
+var settingsFileName = "sprinkler.settings"
+
 type Template struct {
 	name     string
 	template string
 }
 
-func Hydrate(pathToVariables string, pathToTemplates string) {
-	validateVariablesPath(pathToVariables)
-	validateTemplatesPath(pathToTemplates)
+// Path validations
+// Either relative or absolute
+// No ENV variables so no $HOME$
+// pathToVariables must point to file
+// pathToTemplates must point to file or directory
+// outputPath must point to directory
+
+func Hydrate(pathToVariables string, pathToTemplates string, outputPath string) {
+	homePath := os.Getenv("HOME")
+
+	pathToVariables = strings.ReplaceAll(pathToVariables, "$HOME", homePath)
+	pathToTemplates = strings.ReplaceAll(pathToTemplates, "$HOME", homePath)
+	outputPath = strings.ReplaceAll(outputPath, "$HOME", homePath)
+
+	outputPathValidationResult := validateOutputPath(outputPath)
+	variablesPathValidationResult := validateVariablesPath(pathToVariables)
+	templatesPathValidationResult := validateTemplatesPath(pathToTemplates)
+
+	validationErrors := []string{}
+	validationErrors = append(validationErrors, outputPathValidationResult...)
+	validationErrors = append(validationErrors, variablesPathValidationResult...)
+	validationErrors = append(validationErrors, templatesPathValidationResult...)
+
+	if len(validationErrors) != 0 {
+		println("There are validation errors:")
+		for index, message := range validationErrors {
+			fmt.Printf("%v: %v\n", index, message)
+		}
+		os.Exit(1)
+	}
+
+	settings := readSettingsFile(pathToTemplates)
+
+	fmt.Printf("%v", settings)
 
 	variables := readVariables(pathToVariables)
 	templates := readTemplates(pathToTemplates)
 	filledTemplates := fillTemplates(variables, &templates)
 
-	saveFilledTemplates(&filledTemplates)
+	saveFilledTemplates(&filledTemplates, settings)
 }
 
-func saveFilledTemplates(templates *[]Template) {
-	pathToSavedTemplates := "filled_templates"
-
-	info, err := os.Stat(pathToSavedTemplates)
+func readSettingsFile(pathToTemplates string) map[string]string {
+	_, err := os.Stat(pathToTemplates)
 
 	if os.IsNotExist(err) {
-		os.Mkdir(pathToSavedTemplates, 0744)
-	} else if !info.IsDir() {
-		println("filled_templates is a file")
+		return map[string]string{}
+	} else if err != nil {
+		println("Failed to read template directory", err)
+		os.Exit(1)
+	}
+	pathToSettings := filepath.Join(pathToTemplates, settingsFileName)
+	_, err = os.Stat(pathToSettings)
+
+	if os.IsNotExist(err) {
+		return map[string]string{}
+	} else if err != nil {
+		println("Failed to read template directory", err)
 		os.Exit(1)
 	}
 
-	for _, templateEntry := range *templates {
-		templateSuffixIndex := strings.Index(templateEntry.name, ".template")
-		fileName := filepath.Join(pathToSavedTemplates, templateEntry.name[0:templateSuffixIndex])
+	settingsFile, err := os.ReadFile(pathToSettings)
+	if err != nil {
+		println("Failed to read settings file")
+	}
 
-		err := os.WriteFile(fileName, []byte(templateEntry.template), 0744)
+	settingsFileContent := string(settingsFile)
+
+	splitContent := strings.Split(settingsFileContent, "\n")
+
+	settings := map[string]string{}
+
+	for _, splitContent := range splitContent {
+		optionData := strings.Split(splitContent, "=")
+
+		if len(optionData) != 2 {
+			continue
+		}
+
+		settingName := strings.TrimSpace(optionData[0])
+		settingValue := strings.TrimSpace(optionData[1])
+
+		settings[settingName] = settingValue
+	}
+
+	return settings
+}
+
+func saveFilledTemplates(templates *[]Template, settings map[string]string) {
+	for _, templateEntry := range *templates {
+
+		outputPath := settings[templateEntry.name]
+		// Create default path
+		if outputPath == "" {
+			templateSuffixIndex := strings.Index(templateEntry.name, ".template")
+			outputPath = filepath.Join("template_filled", templateEntry.name[0:templateSuffixIndex])
+		}
+		fileDir := filepath.Dir(outputPath)
+		info, err := os.Stat(fileDir)
+
+		if os.IsNotExist(err) {
+			os.Mkdir(fileDir, 0744)
+		} else if !info.IsDir() {
+			println("filled_templates is a file")
+			os.Exit(1)
+		}
+
+		err = os.WriteFile(outputPath, []byte(templateEntry.template), 0744)
 		if err != nil {
 			fmt.Printf("%v", err)
 		}
@@ -125,43 +207,59 @@ func fillTemplates(variables map[string]string, templates *[]Template) []Templat
 	return filledTemplates
 }
 
-func validateVariablesPath(pathToVariables string) {
-	path, err := filepath.Abs(pathToVariables)
-	if err != nil {
-		fmt.Printf("Path to variables failed to convert to absolute. %v \n", err)
-		os.Exit(1)
-	}
+func validateVariablesPath(pathToVariables string) []string {
+	errors := []string{}
 
-	info, err := os.Stat(path)
+	info, err := os.Stat(pathToVariables)
 
 	if os.IsNotExist(err) {
-		println("Path to variables points to void")
-		os.Exit(1)
+		errors = append(errors, "Path to variables points to void")
+	} else if os.IsPermission(err) {
+		errors = append(errors, "Missing permissions to access specified variable file")
 	} else if err != nil {
-		fmt.Println("Uknown error occurred: ", err)
-		os.Exit(1)
+		errors = append(errors, fmt.Sprintf("Uknown error occurred: %v", err))
 	}
 
-	if info.IsDir() {
-		fmt.Println("Path to variables must point to file not to directory")
-		os.Exit(1)
+	if info != nil {
+		if info.IsDir() {
+			errors = append(errors, "Path to variables must point to file")
+		}
 	}
+
+	return errors
 }
 
-func validateTemplatesPath(pathToTemplates string) {
-	path, err := filepath.Abs(pathToTemplates)
-	if err != nil {
-		fmt.Printf("Path to templates failed to convert to absolute. %v \n", err)
-		os.Exit(1)
-	}
+func validateTemplatesPath(pathToTemplates string) []string {
+	errors := []string{}
 
-	_, err = os.Stat(path)
+	_, err := os.Stat(pathToTemplates)
 
 	if os.IsNotExist(err) {
-		println("Path to templates points to void")
-		os.Exit(1)
+		errors = append(errors, "Path to templates points to void")
+	} else if os.IsPermission(err) {
+		errors = append(errors, "Missing permissions to access specified templates file/directory")
 	} else if err != nil {
-		fmt.Println("Uknown error occurred: ", err)
-		os.Exit(1)
+		errors = append(errors, fmt.Sprintf("Uknown error occurred: %v", err))
 	}
+
+	return errors
+}
+
+func validateOutputPath(outputPath string) []string {
+	errors := []string{}
+	info, err := os.Stat(outputPath)
+
+	if os.IsNotExist(err) {
+		return errors
+	}
+
+	if os.IsPermission(err) {
+		errors = append(errors, "Missing permission to access specified output directory")
+	} else if err != nil {
+		errors = append(errors, fmt.Sprintf("Uknown error occurred: %v", err))
+	} else if !info.IsDir() {
+		errors = append(errors, "OutputPath points to file")
+	}
+
+	return errors
 }
